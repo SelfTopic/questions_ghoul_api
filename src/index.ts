@@ -1,5 +1,5 @@
 import app from "./app";
-const PORT = 3000; 
+const PORT = 3300; 
 const HOST = "0.0.0.0";
 
 app.listen(PORT, HOST, () => {
