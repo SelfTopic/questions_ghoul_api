@@ -1,39 +1,32 @@
-import * as dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
-import { Transporter } from 'nodemailer';
+import nodemailer, { Transporter } from 'nodemailer';
+import config from '../config';
 
-dotenv.config();
+function createTransport(): Transporter {
+  const { email } = config;
+  if (email.transport === 'log') return nodemailer.createTransport({ jsonTransport: true });
+
+  const auth = { user: email.user, pass: email.password };
+  if (email.host) {
+    return nodemailer.createTransport({
+      host: email.host,
+      port: email.port ?? 587,
+      secure: email.secure ?? false,
+      auth,
+    });
+  }
+  return nodemailer.createTransport({ service: email.service, auth });
+}
 
 class Emailer {
-    private transporter: Transporter;
+  private transporter = createTransport();
 
-    constructor() {
-        this.transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: {
-                user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASSWORD, 
-            },
-        });
-    }
-
-    private validate_email(email: string): boolean {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    }
-
-    async sendCodeToEmail(toEmail: string, code: string): Promise<boolean> {
-        if (!this.validate_email(toEmail)) {
-            console.error(`❌ Некорректный email: ${toEmail}`);
-            return false;
-        }
-
-        const mailOptions = {
-            from: `"Questions Ghoul API" <${process.env.EMAIL_USER}>`,
-            to: toEmail,
-            subject: 'Твой код верификации 🔥',
-            text: `Привет! Твой код: ${code}`,
-            html: `
+  async sendCodeToEmail(toEmail: string, code: string): Promise<boolean> {
+    const mailOptions = {
+      from: config.email.from,
+      to: toEmail,
+      subject: 'Твой код верификации 🔥',
+      text: `Привет! Твой код: ${code}`,
+      html: `
                 <div style="font-family: sans-serif; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
                     <h2 style="color: #333;">Подтверждение почты</h2>
                     <p>Используйте этот код для завершения регистрации:</p>
@@ -43,17 +36,17 @@ class Emailer {
                     <p style="font-size: 12px; color: #777; margin-top: 20px;">Если вы не запрашивали этот код, просто проигнорируйте письмо.</p>
                 </div>
             `,
-        };
+    };
 
-        try {
-            const info = await this.transporter.sendMail(mailOptions);
-            console.log('✅ Письмо улетело! ID:', info.messageId);
-            return true;
-        } catch (error) {
-            console.error('❌ Ошибка при отправке:', error);
-            return false;
-        }
+    try {
+      await this.transporter.sendMail(mailOptions);
+      if (config.email.transport === 'log') console.log(`📧 [log transport] код для ${toEmail}: ${code}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Ошибка при отправке письма:', (error as Error).message);
+      return false;
     }
+  }
 }
 
-export default new Emailer(); 
+export default new Emailer();

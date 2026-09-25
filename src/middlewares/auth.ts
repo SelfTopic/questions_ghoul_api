@@ -1,80 +1,55 @@
-// middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
-import RedisService from "../services/redis";
+import { z } from 'zod';
+import { HttpError } from '../errors';
+import { isValidGuestToken, verifyAccessToken } from '../services/tokenService';
 
-interface AuthenticatedRequest extends Request {
-  user?: { userId: string; email: string }; 
+const guestTokenSchema = z.uuid();
+
+function bearerToken(req: Request) {
+  const header = req.headers.authorization;
+  if (!header) return undefined;
+  const [scheme, token] = header.split(' ');
+  if (scheme !== 'Bearer' || !token) throw new HttpError(401, 'Используйте заголовок: Authorization: Bearer <token>');
+  return token;
 }
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
+/**
+ * Resolves who is calling and stores it in req.auth.
+ * Exactly one credential is accepted: a user JWT (Authorization: Bearer) or,
+ * when allowGuest is set, a temporary token (X-Temporary-Token).
+ */
+export function authenticate({ allowGuest }: { allowGuest: boolean }) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    const bearer = bearerToken(req);
+    const guest = req.get('x-temporary-token');
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({
-      error: 'Токен отсутствует или имеет неверный формат. Используйте заголовок: Authorization: Bearer <token>'
-    });
-  }
-
-  const token = authHeader.split(' ')[1];
-
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string; email: string };
-
-    req.user = decoded;
-
-    next();
-  } catch (err) {
-    return res.status(401).json({
-      error: `Недействительный или просроченный токен: ${err}`
-    });
-  }
-}
-
-export function requireTempAuth(req: Request, res: Response, next: NextFunction) {
-  (async () => {
-    try {
-      const token = req.headers['x-temporary-token'] as string | undefined;
-      if (!token) {
-        return res.status(401).json({
-          error: 'Токен отсутствует или имеет неверный формат. Используйте заголовок: X-Temporary-Token: <token>'
-        });
-      }
-
-      const stored = await RedisService.getAccessToken(token);
-      if (!stored) {
-        return res.status(401).json({ error: 'Недействительный или просроченный временный токен.' });
-      }
-
-      return next();
-    } catch (err) {
-      return res.status(401).json({ error: `Недействительный или просроченный токен: ${err}` });
+    if (bearer && guest) {
+      throw new HttpError(400, 'Передайте только один токен: Authorization или X-Temporary-Token');
     }
-  })();
-};
 
-export const or = (jwtMiddleware = requireAuth, tempMiddleware = requireTempAuth) => {
-  return (req: Request, res: Response, next: NextFunction) => {
-    // If temporary token header is present, try temp first, otherwise try JWT first.
-    const hasTemp = !!req.headers['x-temporary-token'];
+    if (bearer) {
+      const user = await verifyAccessToken(bearer);
+      if (!user) throw new HttpError(401, 'Недействительный или просроченный токен');
+      req.auth = { type: 'user', ...user };
+      return next();
+    }
 
-    const tryJwt = () => {
-      jwtMiddleware(req as any, res as any, (err1?: any) => {
-        if (!err1) return next();
-        next(new Error('Ни одна проверка не пройдена'));
-      });
-    };
+    if (guest && allowGuest) {
+      if (!guestTokenSchema.safeParse(guest).success || !(await isValidGuestToken(guest))) {
+        throw new HttpError(401, 'Недействительный или просроченный временный токен');
+      }
+      req.auth = { type: 'guest', token: guest };
+      return next();
+    }
 
-    const tryTemp = () => {
-      tempMiddleware(req as any, res as any, (err2?: any) => {
-        if (!err2) return next();
-        tryJwt();
-      });
-    };
-
-    if (hasTemp) tryTemp();
-    else tryJwt();
+    throw new HttpError(
+      401,
+      allowGuest
+        ? 'Требуется Authorization: Bearer <token> или X-Temporary-Token: <token>'
+        : 'Требуется Authorization: Bearer <token>',
+    );
   };
-};
+}
 
-
+export const requireUser = authenticate({ allowGuest: false });
+export const requireUserOrGuest = authenticate({ allowGuest: true });

@@ -1,21 +1,12 @@
-import { Router } from "express";
-import { randomUUID } from "node:crypto";
-import config from "../../config";
-import RedisService from "../../services/redis";
+import { Router } from 'express';
+import { issueGuestToken } from '../../services/tokenService';
 
 export function accessTokenRouter(): Router {
-    const router = Router();
+  const router = Router();
 
-    router.get("/", async (req, res, next) => {
-        const accessToken = randomUUID();
+  router.get('/', async (_req, res) => {
+    res.json(await issueGuestToken());
+  });
 
-        await RedisService.setAccessToken(accessToken);
-        res.status(200).send({
-            accessToken: accessToken,
-            expires_in: config.accessTokenExpires
-        });
-        next();
-    })
-
-    return router;
+  return router;
 }

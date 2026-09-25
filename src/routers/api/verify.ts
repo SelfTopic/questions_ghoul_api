@@ -1,39 +1,30 @@
-import { Router } from "express";
-import RedisClient from "../../services/redis";
-import jwt from "jsonwebtoken";
-import { UserRepository } from "../../repositories/user";
+import { Router } from 'express';
+import { z } from 'zod';
+import { UserRepository } from '../../repositories/user';
+import * as verification from '../../services/verificationService';
+import { issueSession } from '../../services/tokenService';
+import { HttpError } from '../../errors';
+import { emailSchema, parseBody } from '../../validation';
+
+const VerifySchema = z.object({
+  email: emailSchema,
+  code: z.coerce.string().regex(/^\d{6}$/, 'Код состоит из 6 цифр'),
+});
 
 export function verificationCodeRouter(): Router {
-    const router = Router();
+  const router = Router();
 
-    router.post("/", async (req, res, next) => {
-        const { email, code } = req.body; 
+  router.post('/', async (req, res) => {
+    const { email, code } = parseBody(VerifySchema, req.body);
 
-        const savedCode = await RedisClient.getVerificationCode(email);
+    const result = await verification.checkCode(email, code);
+    if (result === 'missing') throw new HttpError(400, 'Код просрочен или не запрашивался');
+    if (result === 'wrong') throw new HttpError(400, 'Неверный код');
 
-        if (!savedCode) {
-            return res.status(400).json({ error: "Код просрочен или не запрашивался" });
-        }
+    const user = await UserRepository.findOrCreate(email);
 
-        if (savedCode !== code) {
-            return res.status(400).json({ error: "Неверный код" });
-        }
+    res.json(await issueSession(user.id));
+  });
 
-        await RedisClient.deleteVerificationCode(email);
-        let user = await UserRepository.findByEmail(email);
-        if (!user) {
-            user = await UserRepository.create(email);
-            console.log(`🆕 Создан новый юзер: ${email}`);
-        }
-
-        const token = jwt.sign(
-            { userId: user.id, email: user.email }, 
-            process.env.JWT_SECRET!,
-            { expiresIn: '7d' }
-        );
-        res.json({ token });
-        next(); 
-    })
-
-    return router;
+  return router;
 }

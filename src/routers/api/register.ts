@@ -1,40 +1,35 @@
-import { Router } from "express";
+import { Router } from 'express';
 import { z } from 'zod';
-import Emailer from "../../services/emailer";
-import RedisService from "../../services/redis";
+import config from '../../config';
+import Emailer from '../../services/emailer';
+import * as verification from '../../services/verificationService';
+import { HttpError } from '../../errors';
+import { emailSchema, parseBody } from '../../validation';
 
-const SendCodeSchema = z.object({
-  email: z.string().email({ message: "Некорректный формат email" })
-});
+const SendCodeSchema = z.object({ email: emailSchema });
 
 export function registerRouter() {
-    const router = Router();
+  const router = Router();
 
-    router.post('/', async (req, res, next) => {
-        try {
-            const validatedData = SendCodeSchema.parse(req.body);
-            
-            const code = Math.floor(100000 + Math.random() * 900000).toString();
-            
-            const isSent = await Emailer.sendCodeToEmail(validatedData.email, code);
+  router.post('/', async (req, res) => {
+    const { email } = parseBody(SendCodeSchema, req.body);
 
-            await RedisService.setVerificationCode(validatedData.email, code)
-            
-            if (!isSent) 
-                return res.status(500).json({ error: "Ошибка почтового сервиса" });
+    if (!(await verification.acquireResendCooldown(email))) {
+      res.set('Retry-After', String(config.verification.resendCooldown));
+      throw new HttpError(429, 'Код уже отправлен, повторный запрос возможен через минуту.');
+    }
 
-            res.json({ message: "Код отправлен, проверьте свою почту и закончите регистрацию." });
-            next();
+    const code = await verification.createCode(email);
+    const isSent = await Emailer.sendCodeToEmail(email, code);
 
-        } catch (error) {
-            if (error instanceof z.ZodError) {
-                return res.status(400).json({ 
-                    error: "Ошибка валидации", 
-                    details: error.message.split("message")[1]
-                });
-            }
-            res.status(500).json({ error: "Внутренняя ошибка сервера" });
-        }
-    });
-    return router;
-};
+    if (!isSent) {
+      await verification.deleteCode(email);
+      await verification.releaseResendCooldown(email);
+      throw new HttpError(503, 'Почтовый сервис временно недоступен');
+    }
+
+    res.json({ message: 'Код отправлен, проверьте свою почту и закончите регистрацию.' });
+  });
+
+  return router;
+}

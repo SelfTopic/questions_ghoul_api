@@ -4,16 +4,17 @@ import { eq } from 'drizzle-orm';
 
 export class UserRepository {
   static async findByEmail(email: string) {
-    const result = await db.select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-    
-    return result[0];
+    const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return user;
   }
 
-  static async create(email: string) {
-    const [result] = await db.insert(users).values({ email }).returning();
-    return result;
+  /** Race-safe: concurrent calls for the same email return the same row. */
+  static async findOrCreate(email: string) {
+    const [user] = await db
+      .insert(users)
+      .values({ email })
+      .onConflictDoUpdate({ target: users.email, set: { email } })
+      .returning();
+    return user;
   }
 }

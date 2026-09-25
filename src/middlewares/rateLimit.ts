@@ -1,69 +1,54 @@
-import { RedisStore, type RedisReply } from 'rate-limit-redis'
-import Redis from 'ioredis';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { RedisStore, type RedisReply } from 'rate-limit-redis';
+import rateLimit, { ipKeyGenerator, type Options } from 'express-rate-limit';
+import type { Request } from 'express';
+import config from '../config';
+import { redis } from '../services/redis';
 
-const redisClient = new Redis(process.env.REDIS_URL!);
+const limits = config.rateLimits;
 
-const createRedisStore = (prefix: string) => new RedisStore({
-  sendCommand: (command: string, ...args: string[]) =>
-    redisClient.call(command, ...args) as Promise<RedisReply>,
-  prefix: prefix
+const ipKey = (req: Request) => ipKeyGenerator(req.ip ?? 'unknown');
+
+function limiter(prefix: string, options: Partial<Options>) {
+  return rateLimit({
+    store: new RedisStore({
+      sendCommand: (command: string, ...args: string[]) => redis.call(command, ...args) as Promise<RedisReply>,
+      prefix: `rl:${prefix}:`,
+    }),
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: ipKey,
+    message: { error: 'Слишком много запросов. Попробуйте позже.' },
+    ...options,
+  });
+}
+
+const bodyEmail = (req: Request): string | undefined =>
+  typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : undefined;
+
+/** Flood protection for every /api request, before any auth work. */
+export const globalLimiter = limiter('global', limits.globalPerIp);
+
+export const registerIpLimiter = limiter('register_ip', limits.registerPerIp);
+
+export const registerEmailLimiter = limiter('register_email', {
+  ...limits.registerPerEmail,
+  skip: (req) => !bodyEmail(req),
+  keyGenerator: (req) => bodyEmail(req)!,
 });
 
-export const apiLimiter = rateLimit({
-  store: createRedisStore('rl:api:'),
-  windowMs: 15 * 60 * 1000,
-  max: 150,
-  standardHeaders: true,
-  keyGenerator: (req) => ipKeyGenerator(req.ip!),
-});
+export const verifyLimiter = limiter('verify', limits.verifyPerIp);
 
-export const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  message: { error: 'Слишком много попыток. Подождите 1 час.' },
-  keyGenerator: (req) => req.body?.email || ipKeyGenerator(req.ip!),
-  store: createRedisStore('rl:auth:'),
-  standardHeaders: true,
-});
+export const guestTokenLimiter = limiter('guest_token', limits.guestTokenPerIp);
 
-export const codeRequestLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 3,
-  keyGenerator: (req) => req.body?.email || ipKeyGenerator(req.ip!),
-  store: createRedisStore('rl:code:'),
-  standardHeaders: true,
-});
+export const refreshLimiter = limiter('refresh', limits.refreshPerIp);
 
-export const accessTokenLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 1,
-  keyGenerator: (req) => req.body?.email || ipKeyGenerator(req.ip!),
-  store: createRedisStore('rl:token:'),
-  standardHeaders: true,
-});
-
-export const tempTokenQuestionLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
+/** Must run after authenticate(): keyed by the verified user id or guest token, never by raw headers. */
+export const quizLimiter = limiter('quiz', {
+  windowMs: limits.quizUser.windowMs,
+  limit: (req) => (req.auth?.type === 'user' ? limits.quizUser.limit : limits.quizGuest.limit),
   keyGenerator: (req) => {
-    const t = (req.headers['x-temporary-token'] as string);
-    return t || ipKeyGenerator(req.ip!);
+    const auth = req.auth;
+    if (!auth) throw new Error('quizLimiter должен идти после authenticate()');
+    return auth.type === 'user' ? `user:${auth.userId}` : `guest:${auth.token}`;
   },
-  store: createRedisStore('rl:temp_q:'),
-  standardHeaders: true,
-  message: { error: 'Слишком много запросов с временным токеном. Попробуйте позже.' },
-});
-
-export const jwtTokenQuestionLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 1000,
-  keyGenerator: (req) => {
-    const auth = (req.headers.authorization as string) || '';
-    if (auth.startsWith('Bearer ')) return auth.split(' ')[1];
-    return ipKeyGenerator(req.ip!);
-  },
-  store: createRedisStore('rl:jwt_q:'),
-  standardHeaders: true,
-  message: { error: 'Слишком много запросов. Попробуйте позже.' },
 });
