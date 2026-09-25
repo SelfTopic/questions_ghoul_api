@@ -1,11 +1,21 @@
+# Production stack. For local development:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+x-api-env: &api-env
+  env_file: .env
+  environment:
+    NODE_ENV: production
+    PORT: 3300
+    POSTGRES_URL: postgres://postgres:${POSTGRES_PASSWORD:?}@postgres:5432/ghoul_db
+    REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
 
 services:
   postgres:
-    image: postgres:15-alpine
     container_name: ghoul_postgres
+    # Major version must match the existing pgdata volume.
+    image: postgres:15-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
       POSTGRES_DB: ghoul_db
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ghoul_db"]
@@ -14,31 +24,55 @@ services:
       retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
-    restart: always
-
-  api:
-    build: .
-    container_name: ghoul_api
-    ports:
-      - "3300:3300"
-    volumes:
-      - .:/app
-      - /app/node_modules 
-    command: pnpm run dev 
-    env_file: .env
-    depends_on:
-      redis:
-        condition: service_started
-      postgres:
-        condition: service_healthy
+    restart: unless-stopped
 
   redis:
-    image: redis:alpine
     container_name: ghoul_redis
-    ports:
-      - "6379:6379"
-    restart: always
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?}", "--appendonly", "yes"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
 
+  migrate:
+    image: questions-ghoul-api:latest
+    build: .
+    <<: *api-env
+    command: ["node", "dist/migrate.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    container_name: ghoul_api
+    image: questions-ghoul-api:latest
+    build: .
+    <<: *api-env
+    ports:
+      - "${API_PORT:-3300}:3300"
+    volumes:
+      # Questions are never baked into the image.
+      - ./assets/data:/app/assets/data:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3300/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:
