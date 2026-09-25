@@ -1,366 +1,135 @@
 # Questions Ghoul API
 
-Высокопроизводительный REST API для быстрого доступа к базе вопросов и ответов из аниме "Tokyo Ghoul". API предоставляет эндпоинты для получения случайных вопросов, поиска ответов и управления доступом через JWT и временные токены.
+REST API с базой вопросов викторины по аниме «Tokyo Ghoul». Гости получают случайные вопросы с вариантами ответа, зарегистрированные пользователи — ещё и правильные ответы.
 
-## Особенности
-
-- 🚀 **Быстрый доступ к данным** — in-memory кеширование вопросов с индексацией по ID и вопросу
-- 🔐 **Двухуровневая аутентификация** — JWT токены для полного доступа и временные токены для гостей
-- ⏱️ **Rate Limiting** — отдельные лимиты для временных (10/ч) и JWT токенов (1000/ч), на основе Redis
-- ✅ **Валидация входа** — использование `zod` для типизированной валидации
-- 📊 **Централизованная обработка ошибок** — единый формат ошибок и логирование
-- 🐳 **Docker Ready** — полная поддержка контейнеризации
-
-## Требования
-
-- Node.js >= 18
-- Docker & Docker Compose (опционально)
-- Redis (для rate-limiting)
-- PostgreSQL (для хранения пользователей)
+Стек: Node.js 24, TypeScript, Express 5, PostgreSQL (Drizzle ORM), Redis (ioredis), Zod, JWT, Nodemailer.
 
 ## Быстрый старт
 
-### Локальная установка
+Файл вопросов (`assets/data/processed/data.json`) **не хранится в репозитории и не попадает в Docker-образ**. Положите его локально — в compose он монтируется в контейнер только для чтения.
 
 ```bash
-# Клонировать репозиторий
-git clone <repo-url>
-cd questions_ghoul_api
+cp .env.example .env   # заполнить JWT_SECRET, пароли, почту
+```
 
-# Установить зависимости
+### Production (Docker)
+
+```bash
+docker compose up -d --build
+```
+
+Поднимаются `postgres`, `redis` (с паролем, наружу не открыт), одноразовый `migrate` и `api` на порту `API_PORT` (по умолчанию 3300). Если перед API стоит reverse proxy, задайте `TRUST_PROXY` — иначе лимиты по IP будут считаться по адресу прокси.
+
+### Разработка
+
+```bash
+# всё в Docker, с hot-reload
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+# или локально (Postgres и Redis уже запущены, URL в .env)
 pnpm install
-
-# Создать .env файл (см. раздел Configuration)
-cp .env.example .env
-
-# Запустить миграции БД
-pnpm run db:push
-
-# Запустить в режиме разработки
-pnpm run dev
+pnpm db:migrate
+pnpm dev
 ```
 
-### Docker
+Для разработки без почты: `EMAIL_TRANSPORT=log` — код подтверждения пишется в консоль (в production запрещено).
 
-```bash
-# Запустить всё через Docker Compose
-docker-compose up
+## Конфигурация
 
-# API будет доступен на http://localhost:3000
-```
+Все переменные описаны в [.env.example](.env.example). Они проверяются при старте ([src/config.ts](src/config.ts)); при ошибке сервер не запускается и пишет, что не так.
 
-## Configuration
+## API
 
-Создайте файл `.env` в корне проекта:
+Все ошибки имеют формат `{ "error": "текст", "details"?: {...} }`. Лимиты отдаются в заголовках `RateLimit` / `RateLimit-Policy`; при превышении — `429`.
 
-```env
-# Server
-NODE_ENV=development
-PORT=3000
+### Гостевой доступ
 
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/questions_ghoul
+`GET /api/access_token` → `{ "accessToken": "<uuid>", "expiresIn": 3600 }`
 
-# Redis
-REDIS_URL=redis://localhost:6379
+Токен передаётся в заголовке `X-Temporary-Token`. Живёт 1 час, даёт 10 вопросов в час, к ответам доступа нет.
 
-# JWT
-JWT_SECRET=your-secret-key-change-in-production
+### Регистрация / вход
 
-# Email (для отправки кодов верификации)
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASSWORD=your-app-password
-EMAIL_SERVICE=gmail
-```
+1. `POST /api/register` `{ "email": "user@example.com" }` — отправляет 6-значный код (живёт 5 минут, повторная отправка — не чаще раза в минуту).
+2. `POST /api/verify-code` `{ "email": "...", "code": "572286" }` → пара токенов:
 
-## API Документация
-
-### Аутентификация
-
-#### 1. Получить временный токен
-```bash
-GET /api/access_token
-```
-**Ответ (200 OK):**
 ```json
 {
-  "accessToken": "664e9678-eb63-4bde-b23c-37ddf2d686a4",
-  "expires_in": 3600
+  "accessToken": "eyJhbGciOi...",
+  "refreshToken": "q3Z...",
+  "tokenType": "Bearer",
+  "expiresIn": 604800,
+  "refreshExpiresIn": 2592000
 }
 ```
-**Rate Limit:** 1 запрос/час (по email или IP)
 
----
+На один код — 5 попыток, потом он сгорает. Пользователь создаётся при первом входе.
 
-#### 2. Регистрация (отправить код на почту)
-```bash
-POST /api/register
-Content-Type: application/json
+### Токены
 
-{
-  "email": "user@example.com"
-}
-```
-**Ответ (200 OK):**
+- **Access** (JWT, `Authorization: Bearer <token>`) — 7 дней.
+- **Refresh** (непрозрачная строка) — 30 дней, продлевается при каждом обновлении. Пока клиент заходит хотя бы раз в месяц, повторный вход по почте не нужен.
+
+| Метод | Путь | Тело / заголовки | Ответ |
+|---|---|---|---|
+| POST | `/api/auth/refresh` | `{ "refreshToken": "..." }` | новая пара токенов |
+| POST | `/api/auth/logout` | `{ "refreshToken": "..." }` | `204`, завершает эту сессию |
+| POST | `/api/auth/logout-all` | `Authorization: Bearer` | `204`, завершает все сессии пользователя |
+
+**Важно для клиента.** Refresh-токен одноразовый: после обновления старый недействителен. Повторное предъявление уже использованного токена считается утечкой — вся сессия отзывается (и refresh, и выданные в ней access-токены), нужен новый вход по почте. Поэтому клиент должен сохранять новую пару сразу и не запускать несколько обновлений параллельно.
+
+### Викторина
+
+`GET /api/quiz/random` — пользователь или гость (ровно один из заголовков; оба сразу → `400`):
+
 ```json
-{
-  "message": "Код отправлен, проверьте свою почту и закончите регистрацию."
-}
+{ "id": 158, "question": "...", "answer_options": ["...", "...", "...", "..."], "answer_group": "name" }
 ```
-**Rate Limit:** 10 запросов/час
 
----
+`POST /api/quiz/answer` — только пользователь. Тело `{ "id": 5 }` или `{ "question": "текст вопроса" }` (поиск не чувствителен к регистру, «ё/е», пунктуации и пробелам):
 
-#### 3. Верификация кода и получение JWT
-```bash
-POST /api/verify-code
-Content-Type: application/json
-
-{
-  "email": "user@example.com",
-  "code": "572286"
-}
-```
-**Ответ (200 OK):**
 ```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-**Rate Limit:** 3 попытки/час
-
----
-
-### Quiz Endpoints
-
-#### 4. Получить случайный вопрос
-```bash
-GET /api/quiz/random
-Authorization: Bearer <JWT_TOKEN>
-# или
-X-Temporary-Token: <TEMP_TOKEN>
-```
-**Ответ (200 OK):**
-```json
-{
-  "id": 158,
-  "question": "Кто в результате побега изуродавал Токаге Гомаса?",
-  "answer_options": [
-    "Ямори",
-    "Канеки",
-    "Аято",
-    "Наки"
-  ],
-  "answer_group": "name"
-}
-```
-**Rate Limit:**
-- Временный токен: 10 запросов/час
-- JWT: 1000 запросов/час
-
----
-
-#### 5. Получить ответ на вопрос
-```bash
-POST /api/quiz/answer
-Authorization: Bearer <JWT_TOKEN>
-Content-Type: application/json
-
-{
-  "id": 5
-}
-```
-**или по вопросу:**
-```json
-{
-  "question": "Как звали кошку Акиры Мадо?"
-}
+{ "id": 5, "question": "...", "answer": "...", "answer_group": "name" }
 ```
 
-**Ответ (200 OK):**
-```json
-{
-  "id": 5,
-  "question": "Кто владел куинке, изготовленным из какухо Арата Киришимы?",
-  "answer": "Юкинори Синохара, Ивао Куроива, Котаро Амон, Ханби Абара и Джузо Судзуя",
-  "answer_group": "name"
-}
-```
-**Rate Limit:** 1000 запросов/час (только JWT)
+### Служебное
 
----
+`GET /api/health` → `200 { "ok": true }` или `503`, если недоступны Redis или Postgres.
 
-## Обработка ошибок
+### Лимиты
 
-### 400 Bad Request
-```json
-{
-  "error": "Неверные входные данные",
-  "details": {
-    "id": ["Expected number"],
-    "question": ["Expected string"]
-  }
-}
-```
+| Что | Лимит | Ключ |
+|---|---|---|
+| Любой запрос к `/api` | 120 / мин | IP |
+| Гостевой токен | 1 / час | IP |
+| Регистрация | 10 / час и 5 / час | IP и email |
+| Проверка кода | 30 / час | IP |
+| Refresh / logout | 60 / час | IP |
+| Вопросы и ответы, гость | 10 / час | гостевой токен |
+| Вопросы и ответы, пользователь | 1000 / час | id пользователя |
 
-### 401 Unauthorized
-```json
-{
-  "error": "Токен отсутствует или имеет неверный формат. Используйте заголовок: Authorization: Bearer <token>"
-}
-```
+Значения задаются в [src/config.ts](src/config.ts).
 
-### 404 Not Found
-```json
-{
-  "error": "Вопрос не найден"
-}
-```
-
-### 429 Too Many Requests
-```json
-{
-  "error": "Слишком много запросов. Попробуйте позже."
-}
-```
-
----
-
-## Структура проекта
-
-```
-src/
-├── app.ts                 # Express приложение
-├── index.ts               # Entry point
-├── config.ts              # Конфигурация
-├── database/              # Drizzle ORM
-├── middlewares/           # Express middleware (auth, rate-limit)
-├── routers/               # API routers
-│   └── api/
-│       ├── quiz.ts        # Endpoints для вопросов
-│       ├── auth.ts        # Endpoints аутентификации
-│       ├── register.ts    # Регистрация
-│       └── verify.ts      # Верификация
-├── services/              # Business logic
-│   ├── questionsDataService.ts  # Кеширование и индексация вопросов
-│   ├── redis.ts           # Redis операции
-│   ├── sessionService.ts  # Управление сессиями
-│   └── emailer.ts         # Отправка писем
-├── repositories/          # Database queries
-├── types/                 # TypeScript типы
-└── assets/
-    └── data/
-        └── processed/
-            └── data.json  # База вопросов и ответов
-
-tests/
-└── smoke_test_quiz.sh     # Smoke-тесты всех endpoints
-```
-
----
-
-## Разработка
-
-### Доступные команды
+## Скрипты
 
 ```bash
-# Разработка
-pnpm run dev          # Запустить с hot-reload (ts-node + nodemon)
+pnpm dev            # ts-node + nodemon
+pnpm build          # компиляция в dist/
+pnpm start          # запуск dist/
+pnpm migrate        # применить миграции (из dist/, для production)
+pnpm typecheck | lint | prettier
 
-# Сборка
-pnpm run build        # Скомпилировать TypeScript
+pnpm db:generate    # создать миграцию после изменения схемы
+pnpm db:migrate     # применить миграции (drizzle-kit, для разработки)
 
-# Production
-pnpm run start        # Запустить скомпилированный код
+pnpm test           # unit-тесты, без внешних сервисов (Redis/БД замоканы)
 
-# Очистка
-pnpm run clean        # Удалить dist/
-
-# Lint & Format
-pnpm run lint         # Проверить код (ESLint)
-pnpm run lint:fix     # Исправить ошибки (ESLint)
-pnpm run prettier     # Проверить форматирование
-pnpm run prettier:fix # Отформатировать код
-
-# База данных
-pnpm run db:push      # Применить миграции
-pnpm run db:generate  # Генерировать миграции
-pnpm run db:migrate   # Запустить миграции
-pnpm run db:studio    # Открыть Drizzle Studio
+pnpm test:env:up        # поднять тестовые Postgres/Redis в Docker
+pnpm test:integration   # интеграционные тесты (vitest + supertest)
+pnpm test:env:down
+./tests/smoke_test_quiz.sh http://localhost:3300
 ```
-
----
-
-## Тестирование
-
-### Smoke-тесты
-
-```bash
-chmod +x tests/smoke_test_quiz.sh
-./tests/smoke_test_quiz.sh
-```
-
-### Вручную через curl
-
-```bash
-# Получить временный токен
-curl http://localhost:3000/api/access_token
-
-# Получить случайный вопрос
-curl -H "X-Temporary-Token: <token>" http://localhost:3000/api/quiz/random
-
-# Получить ответ (требует JWT)
-curl -X POST -H "Authorization: Bearer <jwt>" \
-  -H "Content-Type: application/json" \
-  -d '{"id": 1}' \
-  http://localhost:3000/api/quiz/answer
-```
-
----
-
-## Production Deployment
-
-### Docker
-
-```bash
-# Собрать image
-docker build -t questions-ghoul-api:latest .
-
-# Запустить контейнер
-docker run -p 3000:3000 --env-file .env questions-ghoul-api:latest
-```
-
-### Environment Variables для Production
-
-```env
-NODE_ENV=production
-JWT_SECRET=<long-random-secret>
-DATABASE_URL=<production-db-url>
-REDIS_URL=<production-redis-url>
-```
-
-### Рекомендации
-
-- Использовать HTTPS/TLS на production
-- Хранить секреты в менеджере (Vault, AWS Secrets Manager)
-- Настроить мониторинг (Sentry, Prometheus)
-- Использовать reverse proxy (Nginx)
-- Включить логирование и аудит
-
----
 
 ## License
 
-MIT — см. [LICENSE.md](LICENSE.md)
-
----
-
-## Автор
-
-CheStor
-
----
-
-## Поддержка
-
-Для вопросов и багов откройте issue в репозитории.
+MIT — см. [LICENSE.md](LICENSE.md). Автор — CheStor.

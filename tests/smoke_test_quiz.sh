@@ -1,25 +1,35 @@
 #!/usr/bin/env bash
+# Smoke test against a running instance: ./tests/smoke_test_quiz.sh [http://host:port]
 set -euo pipefail
-API=http://localhost:3000
+API=${1:-${API:-http://localhost:3300}}
+BODY=$(mktemp)
+trap 'rm -f "$BODY"' EXIT
 
-echo "Requesting temporary access token..."
-TOKEN_JSON=$(curl -sS ${API}/api/access_token)
-ACCESS_TOKEN=$(echo "$TOKEN_JSON" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
-if [ -z "$ACCESS_TOKEN" ]; then
-  echo "Failed to obtain access token"
-  echo "Response: $TOKEN_JSON"
-  exit 1
-fi
+expect_status() {
+  local expected=$1; shift
+  local status
+  status=$(curl -sS -o "$BODY" -w '%{http_code}' "$@")
+  if [ "$status" != "$expected" ]; then
+    echo "FAIL: expected $expected, got $status for: $*"; cat "$BODY"; echo; exit 1
+  fi
+}
 
-echo "Got token: $ACCESS_TOKEN"
+echo "Health..."
+expect_status 200 "$API/api/health"
 
-for i in 1 2 3; do
-  echo "Calling /api/quiz/random (#$i)"
-  curl -sS -H "X-Temporary-Token: $ACCESS_TOKEN" ${API}/api/quiz/random | jq .
-done
+echo "Requesting guest token..."
+expect_status 200 "$API/api/access_token"
+TOKEN=$(jq -r .accessToken "$BODY")
 
-# try answer lookup by id
-echo "Calling /api/quiz/answer (by id=1)"
-curl -sS -X POST -H "Content-Type: application/json" -H "X-Temporary-Token: $ACCESS_TOKEN" -d '{"id":1}' ${API}/api/quiz/answer | jq . || true
+echo "Random question as guest..."
+expect_status 200 -H "X-Temporary-Token: $TOKEN" "$API/api/quiz/random"
+jq . "$BODY"
+if jq -e 'has("answer")' "$BODY" >/dev/null; then echo "FAIL: guest got an answer"; exit 1; fi
 
-echo "Note: /api/quiz/answer requires JWT; this last call is expected to 401 unless JWT provided."
+echo "Answer as guest must be 401..."
+expect_status 401 -X POST -H "Content-Type: application/json" -H "X-Temporary-Token: $TOKEN" -d '{"id":1}' "$API/api/quiz/answer"
+
+echo "Guest token + fake Bearer must be 400..."
+expect_status 400 -H "X-Temporary-Token: $TOKEN" -H "Authorization: Bearer fake" "$API/api/quiz/random"
+
+echo "OK"

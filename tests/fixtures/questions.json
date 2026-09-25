@@ -1,0 +1,5 @@
+[
+  { "id": 1, "question": "Тестовый вопрос: какого цвета ёлка?", "answer": "Зелёная", "answer_group": "color", "answer_options": ["Зелёная", "Синяя", "Красная", "Белая"] },
+  { "id": 2, "question": "Тестовый вопрос номер два", "answer": "Да", "answer_group": "bool", "answer_options": ["Да", "Нет", "Может быть", "Не знаю"] },
+  { "id": 3, "question": "Сколько будет 2 + 2?", "answer": "4", "answer_group": "number", "answer_options": ["3", "4", "5", "22"] }
+]
