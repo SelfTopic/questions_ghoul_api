@@ -44,9 +44,6 @@ const envSchema = z
       if (!env.EMAIL_USER) ctx.addIssue({ code: 'custom', path: ['EMAIL_USER'], message: 'обязателен для smtp' });
       if (!env.EMAIL_PASSWORD)
         ctx.addIssue({ code: 'custom', path: ['EMAIL_PASSWORD'], message: 'обязателен для smtp' });
-      if (!env.EMAIL_SERVICE && !env.SMTP_HOST) {
-        ctx.addIssue({ code: 'custom', path: ['EMAIL_SERVICE'], message: 'нужен EMAIL_SERVICE или SMTP_HOST' });
-      }
     }
   });
 
@@ -105,7 +102,8 @@ const config = {
 
   email: {
     transport: env.EMAIL_TRANSPORT,
-    service: env.EMAIL_SERVICE,
+    // Gmail was the only option before EMAIL_SERVICE/SMTP_HOST existed; keep old .env files working.
+    service: env.EMAIL_SERVICE ?? (env.SMTP_HOST ? undefined : 'gmail'),
     host: env.SMTP_HOST,
     port: env.SMTP_PORT,
     secure: env.SMTP_SECURE,

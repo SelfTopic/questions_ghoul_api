@@ -63,6 +63,25 @@ describe('config', () => {
     expect(output).toMatch(/EMAIL_PASSWORD/);
   });
 
+  it('accepts a pre-refactor .env (no EMAIL_SERVICE / EMAIL_TRANSPORT) and defaults to gmail', async () => {
+    const { config, output } = await loadConfigWith({
+      EMAIL_TRANSPORT: undefined,
+      EMAIL_SERVICE: undefined,
+      SMTP_HOST: undefined,
+      EMAIL_USER: 'bot@gmail.com',
+      EMAIL_PASSWORD: 'app-password',
+    });
+    expect(output).toBe('');
+    expect(config?.email.transport).toBe('smtp');
+    expect(config?.email.service).toBe('gmail');
+  });
+
+  it('does not force gmail when SMTP_HOST is set', async () => {
+    const { config } = await loadConfigWith({ EMAIL_SERVICE: undefined, SMTP_HOST: 'smtp.example.com' });
+    expect(config?.email.service).toBeUndefined();
+    expect(config?.email.host).toBe('smtp.example.com');
+  });
+
   it.each([
     ['true', true],
     ['false', false],
