@@ -14,6 +14,7 @@
 - [open-questions.md](open-questions.md) — нерешённые развилки, ждут ответа CheStor.
 - [deployment.md](deployment.md) — тестирование в CI и автодеплой тестового стенда на сервер.
 - [fandom-data.md](fandom-data.md) — разведка структуры данных на Fandom-вики (для скрапера).
+- [question-generation.md](question-generation.md) — как сырые скрапленные данные превращаются в вопросы.
 
 ## Что уже решено
 
