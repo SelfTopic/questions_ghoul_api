@@ -23,6 +23,9 @@ function stripMarkup(wikitext: string): string {
     v = next;
   }
   v = v.replace(/<ref[^>]*\/>/gi, '').replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, '');
+  // Wiki-table syntax ({| ... |}) doesn't clean into prose regardless of
+  // which heading it's under - drop the whole block.
+  v = v.replace(/\{\|[\s\S]*?\n\|\}/g, '');
   v = v.replace(/\[\[File:[^\]]*\]\]/gi, '').replace(/\[\[Файл:[^\]]*\]\]/gi, '');
   // Category tags have no heading before them, so they can end up inside the
   // last real section when a page has no "Примечания"/"Навигация" footer.
@@ -49,11 +52,16 @@ export function extractDefinition(wikitext: string): string {
   const leadText = stripMarkup(lead);
   if (leadText) parts.push(leadText);
 
+  // Only top-level (==) headings get their own block; ===/==== subsections
+  // stay inline inside it (indexOf over all levels is still needed so a
+  // level-2 slice correctly stops at the next level-2 heading, not the
+  // file's end - nesting one more level in would just duplicate the text).
   for (let i = 0; i < bodyHeadings.length; i++) {
+    if (bodyHeadings[i][1].length !== 2) continue;
     const title = cleanHeading(bodyHeadings[i][2]);
     if (SKIP_HEADINGS(title)) continue;
     const start = bodyHeadings[i].index! + bodyHeadings[i][0].length;
-    const next = bodyHeadings.find((h, j) => j > i && h[1].length <= bodyHeadings[i][1].length);
+    const next = bodyHeadings.find((h, j) => j > i && h[1].length <= 2);
     const end = next ? next.index! : body.length;
     const section = stripMarkup(body.slice(start, end));
     if (section) parts.push(`## ${title}\n${section}`);
