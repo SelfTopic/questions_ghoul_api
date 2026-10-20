@@ -2,6 +2,7 @@ import fs from 'fs';
 import config from './config';
 import { loadQuestions } from './services/questionsDataService';
 import { loadWhois } from './services/whoisDataService';
+import { loadTrueFalse } from './services/trueFalseDataService';
 import app from './app';
 import { pool } from './database';
 import { redis } from './services/redis';
@@ -27,6 +28,18 @@ if (fs.existsSync(config.whoisPath)) {
   }
 } else {
   console.log('🖼️ Файл "кто это" не найден — режим отключён');
+}
+
+if (fs.existsSync(config.trueFalsePath)) {
+  try {
+    const count = loadTrueFalse(config.trueFalsePath);
+    console.log(`✅❌ Загружено утверждений: ${count}`);
+  } catch (err) {
+    console.error(`❌ ${(err as Error).message}`);
+    process.exit(1);
+  }
+} else {
+  console.log('✅❌ Файл утверждений не найден — режим отключён');
 }
 
 const server = app.listen(config.port, config.host, () => {

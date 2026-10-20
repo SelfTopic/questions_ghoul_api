@@ -28,6 +28,8 @@ const envSchema = z
     QUESTIONS_PATH: z.string().default('assets/data/processed/data.json'),
     // Optional: a missing file just disables the whois quiz mode, see src/index.ts.
     WHOIS_PATH: z.string().default('assets/data/processed/whois.json'),
+    // Optional: a missing file just disables the true/false quiz mode, see src/index.ts.
+    TRUE_FALSE_PATH: z.string().default('assets/data/processed/true-false.json'),
 
     EMAIL_TRANSPORT: z.enum(['smtp', 'log']).default('smtp'),
     EMAIL_SERVICE: z.string().optional(),
@@ -72,6 +74,7 @@ const config = {
 
   questionsPath: env.QUESTIONS_PATH,
   whoisPath: env.WHOIS_PATH,
+  trueFalsePath: env.TRUE_FALSE_PATH,
 
   jwt: {
     secret: env.JWT_SECRET,

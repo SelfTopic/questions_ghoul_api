@@ -110,6 +110,22 @@ pnpm dev
 { "id": 12, "answer": "..." }
 ```
 
+#### «Верно или нет?»
+
+Ещё один отдельный режим: утверждение (плюс опциональное фото) вместо выбора из вариантов. Опционален — если файл `TRUE_FALSE_PATH` не настроен, эндпоинты отдают `404`.
+
+`GET /api/quiz/true-false/random` — пользователь или гость:
+
+```json
+{ "id": 7, "statement": "...", "promptMedia": null }
+```
+
+`POST /api/quiz/true-false/answer` — только пользователь. Тело `{ "id": 7 }`:
+
+```json
+{ "id": 7, "correct": true }
+```
+
 ### Служебное
 
 `GET /api/health` → `200 { "ok": true }` или `503`, если недоступны Redis или Postgres.
