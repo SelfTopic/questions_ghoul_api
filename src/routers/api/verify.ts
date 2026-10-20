@@ -8,7 +8,11 @@ import { emailSchema, parseBody } from '../../validation';
 
 const VerifySchema = z.object({
   email: emailSchema,
-  code: z.coerce.string().regex(/^\d{6}$/, 'Код состоит из 6 цифр'),
+  // A number loses a leading zero in JSON ("026212" -> 26212), so pad it back before validating.
+  code: z
+    .union([z.string(), z.number()])
+    .transform((v) => (typeof v === 'number' ? String(v).padStart(6, '0') : v))
+    .pipe(z.string().regex(/^\d{6}$/, 'Код состоит из 6 цифр')),
 });
 
 export function verificationCodeRouter(): Router {
