@@ -13,6 +13,7 @@
 - [data-quality.md](data-quality.md) — состояние текущих 500 вопросов и что с ними не так.
 - [open-questions.md](open-questions.md) — нерешённые развилки, ждут ответа CheStor.
 - [deployment.md](deployment.md) — тестирование в CI и автодеплой тестового стенда на сервер.
+- [fandom-data.md](fandom-data.md) — разведка структуры данных на Fandom-вики (для скрапера).
 
 ## Что уже решено
 
