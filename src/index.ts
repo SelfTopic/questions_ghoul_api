@@ -1,5 +1,7 @@
+import fs from 'fs';
 import config from './config';
 import { loadQuestions } from './services/questionsDataService';
+import { loadWhois } from './services/whoisDataService';
 import app from './app';
 import { pool } from './database';
 import { redis } from './services/redis';
@@ -11,6 +13,20 @@ try {
 } catch (err) {
   console.error(`❌ ${(err as Error).message}`);
   process.exit(1);
+}
+
+// Optional quiz mode: a missing file just disables it, but a malformed one
+// still crashes the start - it means the feature was actively misconfigured.
+if (fs.existsSync(config.whoisPath)) {
+  try {
+    const count = loadWhois(config.whoisPath);
+    console.log(`🖼️ Загружено вопросов "кто это": ${count}`);
+  } catch (err) {
+    console.error(`❌ ${(err as Error).message}`);
+    process.exit(1);
+  }
+} else {
+  console.log('🖼️ Файл "кто это" не найден — режим отключён');
 }
 
 const server = app.listen(config.port, config.host, () => {

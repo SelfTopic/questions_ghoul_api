@@ -13,6 +13,7 @@ import { registerRouter } from './routers/api/register';
 import { verificationCodeRouter } from './routers/api/verify';
 import { authRouter } from './routers/api/auth';
 import { quizRouter } from './routers/api/quiz';
+import { whoisRouter } from './routers/api/whois';
 import * as limiters from './middlewares/rateLimit';
 
 const app = express();
@@ -48,6 +49,7 @@ app.use('/api/register', limiters.registerIpLimiter, limiters.registerEmailLimit
 app.use('/api/verify-code', limiters.verifyLimiter, verificationCodeRouter());
 app.use('/api/auth', authRouter());
 app.use('/api/quiz', quizRouter());
+app.use('/api/quiz/whois', whoisRouter());
 
 app.use((_req, _res, next) => next(new HttpError(404, 'Не найдено')));
 

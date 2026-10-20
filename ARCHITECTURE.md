@@ -16,9 +16,10 @@ src/
 ├── middlewares/
 │   ├── auth.ts           # authenticate(): определяет вызывающего, пишет req.auth
 │   └── rateLimit.ts      # все лимитеры, общий Redis store
-├── routers/api/          # accessToken, register, verify, auth (refresh/logout), quiz
+├── routers/api/          # accessToken, register, verify, auth (refresh/logout), quiz, whois
 └── services/
     ├── questionsDataService.ts  # вопросы в памяти, индексы по id / тексту / вариантам
+    ├── whoisDataService.ts      # "кто это?" (медиа-вопросы) — опционален, нет файла — режим отключён
     ├── tokenService.ts          # JWT, refresh-токены, гостевые токены, отзыв сессий
     ├── verificationService.ts   # коды подтверждения в Redis
     ├── emailer.ts
@@ -30,6 +31,7 @@ tests/                    # интеграционные тесты, фикст�
 ## Хранилища
 
 - **Файл вопросов** — читается один раз при старте. Нет файла или он некорректен — процесс завершается с ошибкой.
+- **Файл "кто это"** — тоже читается один раз при старте, но опционален: нет файла — режим просто отключён (эндпоинты отдают `404`); файл есть, но некорректен — так же, как с основными вопросами, процесс завершается с ошибкой.
 - **PostgreSQL** — `users`, `refresh_tokens`.
 - **Redis** — гостевые токены (`a_token:*`), коды подтверждения (`v_code:*`, hash `{code, attempts}`), кулдаун отправки (`v_cooldown:*`), отозванные сессии (`revoked_sid:*`), счётчики лимитов (`rl:*`).
 

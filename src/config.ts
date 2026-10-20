@@ -26,6 +26,8 @@ const envSchema = z
     LOG_SQL: booleanFromEnv.default(false),
 
     QUESTIONS_PATH: z.string().default('assets/data/processed/data.json'),
+    // Optional: a missing file just disables the whois quiz mode, see src/index.ts.
+    WHOIS_PATH: z.string().default('assets/data/processed/whois.json'),
 
     EMAIL_TRANSPORT: z.enum(['smtp', 'log']).default('smtp'),
     EMAIL_SERVICE: z.string().optional(),
@@ -69,6 +71,7 @@ const config = {
   logSql: env.LOG_SQL,
 
   questionsPath: env.QUESTIONS_PATH,
+  whoisPath: env.WHOIS_PATH,
 
   jwt: {
     secret: env.JWT_SECRET,
