@@ -64,3 +64,5 @@ tests/                    # интеграционные тесты, фикст�
 `docker-compose.yml` — production: многоступенчатый образ `node:24-alpine`, только prod-зависимости, пользователь `node`. Сервис `migrate` применяет миграции до старта `api`. Вопросы монтируются из `./assets/data` read-only. Postgres и Redis наружу не публикуются, у Redis пароль.
 
 `docker-compose.dev.yml` — поверх production-файла: dev-стадия образа, bind mount исходников, nodemon, порты БД на 127.0.0.1.
+
+Тестовый стенд обновляется автоматически (CI + systemd-таймер на сервере сам подтягивает последнюю зелёную ветку), прод — вручную. Подробности: [docs/deployment.md](docs/deployment.md).
