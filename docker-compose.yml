@@ -10,7 +10,8 @@ x-api-env: &api-env
 
 services:
   postgres:
-    container_name: ghoul_postgres
+    # No container_name: it isn't scoped by -p like volumes are, so two
+    # projects on the same host (prod + test stand) would collide on it.
     # Major version must match the existing pgdata volume.
     image: postgres:15-alpine
     environment:
@@ -27,7 +28,6 @@ services:
     restart: unless-stopped
 
   redis:
-    container_name: ghoul_redis
     image: redis:7-alpine
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?}", "--appendonly", "yes"]
     environment:
@@ -42,7 +42,9 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: questions-ghoul-api:latest
+    # Also not scoped by -p: without IMAGE_TAG, a stand build on the same host
+    # would overwrite the tag prod's containers are recreated from.
+    image: ${IMAGE_TAG:-questions-ghoul-api:latest}
     build: .
     <<: *api-env
     command: ["node", "dist/migrate.js"]
@@ -52,8 +54,7 @@ services:
     restart: "no"
 
   api:
-    container_name: ghoul_api
-    image: questions-ghoul-api:latest
+    image: ${IMAGE_TAG:-questions-ghoul-api:latest}
     build: .
     <<: *api-env
     ports:
