@@ -2,13 +2,25 @@ import fs from 'fs';
 import path from 'path';
 import { z } from 'zod';
 
-const questionSchema = z.object({
-  id: z.number().int().positive(),
-  question: z.string().min(1),
-  answer: z.string().min(1),
-  answer_group: z.string().optional(),
-  answer_options: z.array(z.string()),
-});
+const questionSchema = z
+  .object({
+    id: z.number().int().positive(),
+    question: z.string().min(1),
+    answer: z.string().min(1),
+    answer_group: z.string().optional(),
+    // 2-10, not a fixed 4 - see docs/data-quality.md.
+    answer_options: z.array(z.string().min(1)).min(2).max(10),
+    // Illustration for the correct answer (docs/question-types.md); null when
+    // none is available, never missing, so clients don't need an undefined check.
+    answerMedia: z
+      .object({ url: z.url(), kind: z.enum(['image', 'video']) })
+      .nullable()
+      .default(null),
+  })
+  .refine((q) => q.answer_options.includes(q.answer), {
+    error: 'answer должен входить в answer_options',
+    path: ['answer'],
+  });
 
 export type Question = z.infer<typeof questionSchema>;
 
@@ -56,12 +68,10 @@ export function loadQuestions(filePath: string) {
     byId.set(it.id, it);
 
     const qKey = normalizeText(it.question);
-    if (byQuestion.has(qKey)) console.warn(`⚠️ Дублирующийся текст вопроса (id ${it.id})`);
-    byQuestion.set(qKey, it);
-
-    if (!it.answer_options.includes(it.answer)) {
-      console.warn(`⚠️ Ответ вопроса id ${it.id} отсутствует среди вариантов`);
+    if (byQuestion.has(qKey)) {
+      throw new Error(`Дублирующийся текст вопроса (id ${it.id} и id ${byQuestion.get(qKey)!.id})`);
     }
+    byQuestion.set(qKey, it);
 
     const key = answersKey(it.answer_options);
     const bucket = answersIndex.get(key) || [];

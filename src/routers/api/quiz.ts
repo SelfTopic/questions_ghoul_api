@@ -32,7 +32,13 @@ export function quizRouter(): Router {
       'id' in input ? questionsDataService.getById(input.id) : questionsDataService.getByQuestion(input.question);
     if (!q) throw new HttpError(404, 'Вопрос не найден');
 
-    res.json({ id: q.id, question: q.question, answer: q.answer, answer_group: q.answer_group });
+    res.json({
+      id: q.id,
+      question: q.question,
+      answer: q.answer,
+      answer_group: q.answer_group,
+      answerMedia: q.answerMedia,
+    });
   });
 
   return router;

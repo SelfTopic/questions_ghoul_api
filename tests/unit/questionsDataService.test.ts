@@ -72,9 +72,34 @@ describe('loadQuestions', () => {
   });
 
   it('throws on duplicate ids', () => {
-    const q = { id: 1, question: 'a', answer: 'b', answer_options: ['b'] };
+    const q = { id: 1, question: 'a', answer: 'b', answer_options: ['b', 'c'] };
     expect(() => questions.loadQuestions(writeTmp('dup.json', [q, { ...q, question: 'c' }]))).toThrow(
       /Дублирующийся id/,
     );
+  });
+
+  it('throws on an answer missing from its own options', () => {
+    const q = { id: 1, question: 'a', answer: 'x', answer_options: ['b', 'c'] };
+    expect(() => questions.loadQuestions(writeTmp('badanswer.json', [q]))).toThrow(/некорректен/);
+  });
+
+  it('throws on duplicate question text', () => {
+    const a = { id: 1, question: 'Один и тот же вопрос?', answer: 'b', answer_options: ['b', 'c'] };
+    const b = { id: 2, question: 'ОДИН и тот же вопрос?!', answer: 'b', answer_options: ['b', 'c'] };
+    expect(() => questions.loadQuestions(writeTmp('dupquestion.json', [a, b]))).toThrow(/Дублирующийся текст/);
+  });
+
+  it('defaults answerMedia to null and passes it through when present', () => {
+    const withMedia = {
+      id: 1,
+      question: 'a',
+      answer: 'b',
+      answer_options: ['b', 'c'],
+      answerMedia: { url: 'https://example.com/x.png', kind: 'image' },
+    };
+    const withoutMedia = { id: 2, question: 'c', answer: 'd', answer_options: ['d', 'e'] };
+    questions.loadQuestions(writeTmp('media.json', [withMedia, withoutMedia]));
+    expect(questions.getById(1)?.answerMedia).toEqual({ url: 'https://example.com/x.png', kind: 'image' });
+    expect(questions.getById(2)?.answerMedia).toBeNull();
   });
 });
