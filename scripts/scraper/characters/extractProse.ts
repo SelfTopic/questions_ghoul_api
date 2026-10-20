@@ -2,7 +2,18 @@
 // wikitext (no HTML render, no new dependency) and lightly cleans them for
 // a model to read - see docs/question-generation.md pilot notes.
 const HEADING = /^(={2,})\s*(.+?)\s*\1\s*$/gm;
-const WANTED_SECTIONS = new Set(['Личность', 'Сюжетная линия', 'Отношения', 'Интересные факты']);
+// Different pages spell the same section differently - checked frequencies
+// across all 281 characters before picking these synonyms.
+const WANTED_SECTIONS = new Set([
+  'Личность',
+  'Характер',
+  'Сюжетная линия',
+  'Сюжет',
+  'История',
+  'Отношения',
+  'Интересные факты',
+  'Факты',
+]);
 
 function cleanHeadingText(raw: string): string {
   return raw
