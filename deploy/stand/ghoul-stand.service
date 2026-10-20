@@ -1,0 +1,9 @@
+[Unit]
+Description=questions_ghoul_api: тестовый стенд из последней запушенной ветки
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ghoul-stand.env
+ExecStart=/usr/local/bin/ghoul-stand-deploy
