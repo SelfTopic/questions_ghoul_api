@@ -7,6 +7,12 @@ export interface ScrapedQuote {
   text: string;
 }
 
+export interface ScrapedImage {
+  file: string;
+  // null if the file reference didn't resolve (renamed/deleted on the wiki).
+  url: string | null;
+}
+
 export interface ScrapedCharacter {
   pageId: number;
   title: string;
@@ -16,4 +22,8 @@ export interface ScrapedCharacter {
   // question-ready text is a later step, not the scraper's job.
   infobox: Record<string, string>;
   quotes: ScrapedQuote[];
+  // Every [[File:...]]/[[Файл:...]] referenced anywhere in the infobox
+  // (images, era tabs, etc.), resolved to a direct link on Fandom's CDN -
+  // we link directly rather than rehosting, see docs/fandom-data.md.
+  images: ScrapedImage[];
 }
