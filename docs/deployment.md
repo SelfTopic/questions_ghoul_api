@@ -53,18 +53,24 @@ SSH-секретов в GitHub Actions заводить не нужно.
 - **Секретные данные**: как и в проде, папке стенда нужен свой
   `assets/data/processed/data.json` — положить руками один раз, `git checkout
   --force` его не трогает (он в `.gitignore`).
-- **Порты**: стенд и прод на одном сервере — разные `docker compose`-проекты
-  (`ghoul_test` / дефолтный) со своими `.env` (`API_PORT` и т.п.), как и у
-  `chestor_bot`.
+- **Свой `.env` у стенда**, отдельный от прод-конфига, на основе
+  `.env.example`: другой `API_PORT` (прод и стенд — на одном сервере, порты
+  не должны совпадать), свои `POSTGRES_PASSWORD` / `REDIS_PASSWORD` / `JWT_SECRET`
+  (просто новые случайные значения — у стенда своя база и свои токены, общего
+  с продом тут ничего нет и быть не должно). `EMAIL_USER`/`EMAIL_PASSWORD`
+  можно взять такие же, как в проде — `docker-compose.yml` жёстко ставит
+  `NODE_ENV=production`, а значит `EMAIL_TRANSPORT=log` там запрещён
+  (`src/config.ts`): письма с кодом подтверждения со стенда реально уйдут на
+  почту, это и нужно для проверки регистрации.
 
 ### Установка на сервере (аналогично `chestor_bot`, один раз)
 
 ```sh
 git clone https://github.com/SelfTopic/questions_ghoul_api.git /root/ghoul_test
-cp /путь/к/.env.стенда /root/ghoul_test/.env
-cp /путь/к/data.json /root/ghoul_test/assets/data/processed/data.json
-
 cd /root/ghoul_test
+cp .env.example .env
+nano .env   # свой набор значений, см. ниже
+cp /путь/к/data.json assets/data/processed/data.json
 install -m 755 deploy/stand/deploy.sh /usr/local/bin/ghoul-stand-deploy
 install -m 644 deploy/stand/ghoul-stand.service deploy/stand/ghoul-stand.timer /etc/systemd/system/
 install -m 600 deploy/stand/ghoul-stand.env.example /etc/ghoul-stand.env
