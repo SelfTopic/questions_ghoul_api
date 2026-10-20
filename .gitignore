@@ -4,3 +4,4 @@ assets
 .env
 .env.*
 !.env.example
+scripts/scraper/out
